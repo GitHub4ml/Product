@@ -1,0 +1,47 @@
+﻿@using Product.UI.Models
+
+<RadzenDataGrid Data="@Products"
+                TItem="ProductResponse"
+                AllowSorting="true"
+                GridLines="DataGridGridLines.Horizontal"
+                Density="Density.Default"
+                EmptyText="No products found."
+                RowClass="@GetRowClass">
+    <Columns>
+        <RadzenDataGridColumn TItem="ProductResponse" Property="Id" Title="#" Width="70px" Sortable="true" />
+        <RadzenDataGridColumn TItem="ProductResponse" Property="Name" Title="Name" Sortable="true" />
+        <RadzenDataGridColumn TItem="ProductResponse" Property="Price" Title="Current Price" Sortable="true">
+            <Template Context="p">
+                <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="@p.Price.ToString("C")" />
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="ProductResponse" Property="LastUpdated" Title="Last Updated" Sortable="true">
+            <Template Context="p">@p.LastUpdated.ToString("g")</Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="ProductResponse" Title="" Width="80px" Sortable="false" TextAlign="TextAlign.Center">
+            <Template Context="p">
+                <RadzenButton Icon="@(p.Id == SelectedProductId ? "close" : "visibility")"
+                              ButtonStyle="@(p.Id == SelectedProductId ? ButtonStyle.Danger : ButtonStyle.Info)"
+                              Variant="Variant.Text"
+                              Size="ButtonSize.Small"
+                              Click="@CreateClickHandler(p)" />
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+<RadzenText TextStyle="TextStyle.Caption" class="rz-mt-2 rz-color-secondary">
+    Click the icon to view details and actions.
+</RadzenText>
+
+@code {
+    [Parameter, EditorRequired] public List<ProductResponse> Products { get; set; } = [];
+    [Parameter] public int? SelectedProductId { get; set; }
+    [Parameter] public EventCallback<ProductResponse> OnProductSelected { get; set; }
+
+    private string GetRowClass(ProductResponse row) =>
+        row.Id == SelectedProductId ? "rz-state-highlight" : string.Empty;
+
+    private EventCallback<MouseEventArgs> CreateClickHandler(ProductResponse product) =>
+        EventCallback.Factory.Create<MouseEventArgs>(this, () => OnProductSelected.InvokeAsync(product));
+}

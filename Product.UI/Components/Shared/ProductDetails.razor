@@ -1,0 +1,241 @@
+﻿@inject IProductApiClient ApiClient
+@inject NotificationService NotificationService
+
+<RadzenCard class="rz-border-radius-3 rz-shadow-2">
+
+    <RadzenRow AlignItems="AlignItems.Center" class="rz-mb-4">
+        <RadzenColumn>
+            <RadzenText TextStyle="TextStyle.H6" class="rz-m-0">@Product.Name</RadzenText>
+        </RadzenColumn>
+        <RadzenColumn class="rz-text-align-right">
+            <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Size="ButtonSize.Small"
+                          Variant="Variant.Text" Click="@(_ => OnClose.InvokeAsync())"
+                          title="Close" />
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenStack Gap="0.25rem" class="rz-mb-4">
+        <RadzenText><strong>Current Price:</strong> @Product.Price.ToString("C")</RadzenText>
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-color-secondary">
+            Last Updated: @Product.LastUpdated.ToString("g")
+        </RadzenText>
+    </RadzenStack>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" class="rz-mb-4">
+        <RadzenButton Text="@(_activePanel == Panel.History ? "Hide History" : "View History")"
+                      ButtonStyle="@(_activePanel == Panel.History ? ButtonStyle.Secondary : ButtonStyle.Light)"
+                      Size="ButtonSize.Small"
+                      Click="@(async _ => await ToggleHistoryAsync())" />
+        <RadzenButton Text="@(_activePanel == Panel.Discount ? "Cancel" : "Apply Discount")"
+                      ButtonStyle="@(_activePanel == Panel.Discount ? ButtonStyle.Secondary : ButtonStyle.Warning)"
+                      Size="ButtonSize.Small"
+                      Click="@(_ => ToggleDiscount())" />
+        <RadzenButton Text="@(_activePanel == Panel.UpdatePrice ? "Cancel" : "Update Price")"
+                      ButtonStyle="@(_activePanel == Panel.UpdatePrice ? ButtonStyle.Secondary : ButtonStyle.Primary)"
+                      Size="ButtonSize.Small"
+                      Click="@(_ => ToggleUpdatePrice())" />
+    </RadzenStack>
+
+    @if (_activePanel == Panel.History)
+    {
+        @if (_historyLoading)
+        {
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"
+                                       Size="ProgressBarCircularSize.Small" />
+        }
+        else if (_historyResult is null || _historyResult.PriceHistory.Count == 0)
+        {
+            <RadzenText class="rz-color-secondary">No price history available.</RadzenText>
+        }
+        else
+        {
+            <RadzenDataGrid Data="@_historyResult.PriceHistory"
+                            TItem="PriceHistoryEntryResponse"
+                            GridLines="DataGridGridLines.Horizontal"
+                            Density="Density.Compact"
+                            AllowSorting="true">
+                <Columns>
+                    <RadzenDataGridColumn TItem="PriceHistoryEntryResponse" Property="Price" Title="Price">
+                        <Template Context="e">@e.Price.ToString("C")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="PriceHistoryEntryResponse" Property="Date" Title="Date">
+                        <Template Context="e">@e.Date.ToString("g")</Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        }
+    }
+
+    @if (_activePanel == Panel.Discount)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="0.5rem">
+            <RadzenStack Gap="0.25rem">
+                <RadzenNumeric TValue="int"
+                               Value="@_discountPercentage"
+                               ValueChanged="@((int v) => { _discountPercentage = v; _discountError = null; })"
+                               Min="1" Max="99"
+                               Placeholder="% (1–99)"
+                               Style="width: 130px" />
+                @if (_discountError is not null)
+                {
+                    <RadzenText class="rz-color-danger" TextStyle="TextStyle.Caption">@_discountError</RadzenText>
+                }
+            </RadzenStack>
+            <RadzenButton Text="Apply" ButtonStyle="ButtonStyle.Warning"
+                          Size="ButtonSize.Small"
+                          Click="@(async _ => await ApplyDiscountAsync())" />
+        </RadzenStack>
+    }
+
+    @if (_activePanel == Panel.UpdatePrice)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="0.5rem">
+            <RadzenStack Gap="0.25rem">
+                <RadzenNumeric TValue="decimal"
+                               Value="@_newPrice"
+                               ValueChanged="@((decimal v) => { _newPrice = v; _priceError = null; })"
+                               Min="0.01m" Step="0.01m"
+                               Placeholder="e.g. 12.99"
+                               Style="width: 130px" />
+                @if (_priceError is not null)
+                {
+                    <RadzenText class="rz-color-danger" TextStyle="TextStyle.Caption">@_priceError</RadzenText>
+                }
+            </RadzenStack>
+            <RadzenButton Text="Save" ButtonStyle="ButtonStyle.Primary"
+                          Size="ButtonSize.Small"
+                          Click="@(async _ => await UpdatePriceAsync())" />
+        </RadzenStack>
+    }
+
+</RadzenCard>
+
+@code {
+    private enum Panel { None, History, Discount, UpdatePrice }
+
+    [Parameter, EditorRequired] public ProductResponse Product { get; set; } = default!;
+    [Parameter] public EventCallback<UpdatePriceResponse> OnPriceUpdated { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private Panel _activePanel;
+
+    private bool _historyLoading;
+    private ProductDetailResponse? _historyResult;
+
+    private int _discountPercentage;
+    private string? _discountError;
+
+    private decimal _newPrice;
+    private string? _priceError;
+
+    private int _renderedProductId;
+
+    protected override void OnParametersSet()
+    {
+        if (_renderedProductId == Product.Id) return;
+
+        _renderedProductId = Product.Id;
+        _activePanel = Panel.None;
+        _historyResult = null;
+        _discountPercentage = 0;
+        _discountError = null;
+        _newPrice = 0;
+        _priceError = null;
+    }
+
+    private async Task ToggleHistoryAsync()
+    {
+        if (_activePanel == Panel.History)
+        {
+            _activePanel = Panel.None;
+            return;
+        }
+
+        _activePanel = Panel.History;
+        _historyResult = null;
+        _historyLoading = true;
+
+        try
+        {
+            _historyResult = await ApiClient.GetProductByIdAsync(Product.Id);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Failed to load history", ex.Message);
+        }
+        finally
+        {
+            _historyLoading = false;
+        }
+    }
+
+    private void ToggleDiscount()
+    {
+        _activePanel = _activePanel == Panel.Discount ? Panel.None : Panel.Discount;
+        _discountPercentage = 0;
+        _discountError = null;
+    }
+
+    private void ToggleUpdatePrice()
+    {
+        _activePanel = _activePanel == Panel.UpdatePrice ? Panel.None : Panel.UpdatePrice;
+        _newPrice = 0;
+        _priceError = null;
+    }
+
+    private async Task ApplyDiscountAsync()
+    {
+        if (_discountPercentage is < 1 or > 99)
+        {
+            _discountError = "Discount must be between 1 and 99.";
+            return;
+        }
+
+        try
+        {
+            var result = await ApiClient.ApplyDiscountAsync(Product.Id, _discountPercentage);
+            if (result is not null)
+                Notify(NotificationSeverity.Info, "Discount preview",
+                    $"{result.OriginalPrice.ToString("C")} → {result.DiscountedPrice.ToString("C")} (not saved)");
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Discount failed", ex.Message);
+        }
+    }
+
+    private async Task UpdatePriceAsync()
+    {
+        if (_newPrice <= 0)
+        {
+            _priceError = "Price must be greater than 0.";
+            return;
+        }
+
+        try
+        {
+            var result = await ApiClient.UpdatePriceAsync(Product.Id, _newPrice);
+            if (result is not null)
+            {
+                await OnPriceUpdated.InvokeAsync(result);
+                Notify(NotificationSeverity.Success, "Price updated",
+                    $"{Product.Name} is now {result.NewPrice.ToString("C")}");
+                _activePanel = Panel.None;
+                _newPrice = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Update failed", ex.Message);
+        }
+    }
+
+    private void Notify(NotificationSeverity severity, string summary, string detail) =>
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 5000
+        });
+}

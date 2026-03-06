@@ -1,0 +1,25 @@
+@Product_HostAddress = http://localhost:5047
+
+### Get all products
+GET {{Product_HostAddress}}/api/product
+Accept: application/json
+
+###
+
+### Get product by id
+GET {{Product_HostAddress}}/api/product/1
+Accept: application/json
+
+###
+
+### Apply discount to product (10% off)
+POST {{Product_HostAddress}}/api/product/1/discount?discountPercentage=10
+Accept: application/json
+
+###
+
+### Update product price
+PUT {{Product_HostAddress}}/api/product/1/price?newPrice=12.99
+Accept: application/json
+
+###
